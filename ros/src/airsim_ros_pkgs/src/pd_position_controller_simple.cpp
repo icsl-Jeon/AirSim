@@ -63,6 +63,8 @@ void PIDPositionController::initialize_ros()
     // ROS subscribers
     airsim_odom_sub_ = nh_.subscribe("/airsim_node/odom_local_ned", 50, &PIDPositionController::airsim_odom_cb, this);
     home_geopoint_sub_ = nh_.subscribe("/airsim_node/home_geo_point", 50, &PIDPositionController::home_geopoint_cb, this);
+    local_position_goal_sub_ = nh_.subscribe("/airsim_node/local_position_goal_enu", 50, &PIDPositionController::local_position_gaol_enu, this);
+
     // todo publish this under global nodehandle / "airsim node" and hide it from user
     local_position_goal_srvr_ = nh_.advertiseService("/airsim_node/local_position_goal", &PIDPositionController::local_position_goal_srv_cb, this);
     local_position_goal_override_srvr_ = nh_.advertiseService("/airsim_node/local_position_goal/override", &PIDPositionController::local_position_goal_srv_override_cb, this);
@@ -147,6 +149,63 @@ bool PIDPositionController::local_position_goal_srv_override_cb(airsim_ros_pkgs:
     reached_goal_ = false;
     reset_errors(); // todo
     return true;
+}
+// goal = published w.r.t enu frame
+void PIDPositionController::local_position_gaol_enu(const geometry_msgs::PoseStamped& goal_msg){
+
+    // this tells the update timer callback to not do active hovering 
+    if(!got_goal_once_)
+        got_goal_once_ = true;
+
+
+
+    Eigen::Quaternionf quat;
+    Eigen::Vector3f transl;
+    quat.x() = goal_msg.pose.orientation.x;
+    quat.y() = goal_msg.pose.orientation.y;
+    quat.z() = goal_msg.pose.orientation.z;
+    quat.w() = goal_msg.pose.orientation.w;
+    transl(0) = goal_msg.pose.position.x;
+    transl(1) = goal_msg.pose.position.y;
+    transl(2) = goal_msg.pose.position.z;
+    
+
+    Eigen::Affine3f goal_pose_ned; goal_pose_ned.setIdentity();
+    goal_pose_ned.setIdentity();
+    goal_pose_ned.translate(transl); 
+    goal_pose_ned.rotate(quat);
+
+    Eigen::Matrix3f quat_mat(goal_pose_ned.rotation());
+    
+    auto euler = quat_mat.eulerAngles(0, 1, 2);
+
+    // enu to ned
+
+    Eigen::Matrix3f ned2enu_rot;
+    ned2enu_rot << 1,0,0,
+                    0,-1,0,
+                    0,0,-1;    
+
+    goal_pose_ned.prerotate(ned2enu_rot); 
+    // goal_pose_ned.rotate(ned2enu_rot.transpose());
+    
+
+    // odom_ned_msg.child_frame_id = "/airsim/odom_local_ned"; // todo make param
+
+    
+    target_position_.x = goal_pose_ned.translation()(0);
+    target_position_.y = goal_pose_ned.translation()(1);
+    target_position_.z = goal_pose_ned.translation()(2);
+    target_position_.yaw = -euler(2);
+
+    ROS_INFO_STREAM("[PIDPositionController] got goal: x=" << target_position_.x << " y=" << target_position_.y << " z=" << target_position_.z << " yaw=" << target_position_.yaw );
+
+    // todo error checks 
+    // todo fill response
+    has_goal_ = true;
+    reached_goal_ = false;
+    reset_errors(); // todo
+
 }
 
 void PIDPositionController::home_geopoint_cb(const airsim_ros_pkgs::GPSYaw& gps_msg)
@@ -275,7 +334,7 @@ void PIDPositionController::update_control_cmd_timer_cb(const ros::TimerEvent& e
         }
         else
         {
-            ROS_INFO_STREAM("[PIDPositionController] Moving to goal.");
+            // ROS_INFO_STREAM("[PIDPositionController] Moving to goal.");
         }
     }
 
@@ -294,7 +353,7 @@ void PIDPositionController::compute_control_cmd()
     curr_error_.y = target_position_.y - curr_position_.y;
     curr_error_.z = target_position_.z - curr_position_.z;
     curr_error_.yaw = math_common::angular_dist(curr_position_.yaw, target_position_.yaw);
-
+    
     double p_term_x = params_.kp_x * curr_error_.x;
     double p_term_y = params_.kp_y * curr_error_.y;
     double p_term_z = params_.kp_z * curr_error_.z;

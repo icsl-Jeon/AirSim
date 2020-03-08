@@ -76,6 +76,9 @@ void AirsimROSWrapper::initialize_ros()
     double update_airsim_control_every_n_sec;
     nh_private_.getParam("is_vulkan", is_vulkan_);
     nh_private_.getParam("update_airsim_control_every_n_sec", update_airsim_control_every_n_sec);
+    nh_private_.getParam("vehicle_frame_enu",vehicle_id_enu_);
+    nh_private_.param<string>("object_name",object_name,"NPC_2");
+
     vel_cmd_duration_ = 0.05; // todo rosparam
     // todo enforce dynamics constraints in this node as well?
     // nh_.getParam("max_vert_vel_", max_vert_vel_);
@@ -92,6 +95,7 @@ void AirsimROSWrapper::create_ros_pubs_from_settings_json()
     gimbal_angle_quat_cmd_sub_ = nh_private_.subscribe("gimbal_angle_quat_cmd", 50, &AirsimROSWrapper::gimbal_angle_quat_cmd_cb, this);
     gimbal_angle_euler_cmd_sub_ = nh_private_.subscribe("gimbal_angle_euler_cmd", 50, &AirsimROSWrapper::gimbal_angle_euler_cmd_cb, this);
     origin_geo_point_pub_ = nh_private_.advertise<airsim_ros_pkgs::GPSYaw>("origin_geo_point", 10);       
+    pose_object_enu_pub = nh_private_.advertise<geometry_msgs::PoseStamped>("object_pose",10);
 
     airsim_img_request_vehicle_name_pair_vec_.clear();
     image_pub_vec_.clear();
@@ -126,6 +130,7 @@ void AirsimROSWrapper::create_ros_pubs_from_settings_json()
         multirotor_ros.vehicle_name = curr_vehicle_name;
         multirotor_ros.odom_local_ned_pub = nh_private_.advertise<nav_msgs::Odometry>(curr_vehicle_name + "/odom_local_ned", 10);
         multirotor_ros.global_gps_pub = nh_private_.advertise<sensor_msgs::NavSatFix>(curr_vehicle_name + "/global_gps", 10);
+        multirotor_ros.pose_local_enu_pub = nh_private_.advertise<geometry_msgs::PoseStamped>(curr_vehicle_name + "/pose_local_enu", 10);
 
         // bind to a single callback. todo optimal subs queue length
         // bind multiple topics to a single callback, but keep track of which vehicle name it was by passing curr_vehicle_name as the 2nd argument 
@@ -584,6 +589,8 @@ nav_msgs::Odometry AirsimROSWrapper::get_odom_msg_from_airsim_state(const msr::a
     odom_ned_msg.pose.pose.orientation.z = drone_state.getOrientation().z();
     odom_ned_msg.pose.pose.orientation.w = drone_state.getOrientation().w();
 
+
+
     odom_ned_msg.twist.twist.linear.x = drone_state.kinematics_estimated.twist.linear.x();
     odom_ned_msg.twist.twist.linear.y = drone_state.kinematics_estimated.twist.linear.y();
     odom_ned_msg.twist.twist.linear.z = drone_state.kinematics_estimated.twist.linear.z();
@@ -593,6 +600,99 @@ nav_msgs::Odometry AirsimROSWrapper::get_odom_msg_from_airsim_state(const msr::a
 
     return odom_ned_msg;
 }
+
+
+geometry_msgs::PoseStamped AirsimROSWrapper::ned_pose_to_enu_pose(const geometry_msgs::PoseStamped & pose_ned){
+
+    geometry_msgs::PoseStamped pose_stamped;
+    pose_stamped.header.frame_id = pose_ned.header.frame_id;
+    // odom_ned_msg.header.frame_id = world_frame_id_;
+    // odom_ned_msg.child_frame_id = "/airsim/odom_local_ned"; // todo make param
+    Eigen::Quaternionf quat;
+    Eigen::Vector3f transl;
+    transl(0) = pose_ned.pose.position.x;
+    transl(1) = pose_ned.pose.position.y;
+    transl(2) = pose_ned.pose.position.z;
+    quat.x() =  pose_ned.pose.orientation.x;
+    quat.y() =  pose_ned.pose.orientation.y;
+    quat.z() =  pose_ned.pose.orientation.z;
+    quat.w() =  pose_ned.pose.orientation.w;
+
+    Eigen::Matrix3f rotm_en;   
+    Eigen::Affine3f transform;                 
+    rotm_en << 1,0,0,
+            0,-1,0,
+            0,0,-1;
+
+    quat.normalize();
+    transform.setIdentity();
+    transform.translate(transl);
+    transform.rotate(quat);
+    
+    transform.prerotate(rotm_en);    
+    transform.rotate(rotm_en.transpose()); // to enu
+    
+    // std::cout << transform.matrix() << std::endl;
+
+    quat = Eigen::Quaternionf(transform.rotation());
+    pose_stamped.pose.position.x = transform.translation()(0);
+    pose_stamped.pose.position.y = transform.translation()(1);
+    pose_stamped.pose.position.z = transform.translation()(2);
+
+    pose_stamped.pose.orientation.w = quat.w();
+    pose_stamped.pose.orientation.x = quat.x();
+    pose_stamped.pose.orientation.y = quat.y();
+    pose_stamped.pose.orientation.z = quat.z();
+    
+    return pose_stamped;
+}
+
+geometry_msgs::PoseStamped AirsimROSWrapper::get_pose_msg_from_airsim_state(const msr::airlib::MultirotorState& drone_state) const
+{
+    geometry_msgs::PoseStamped pose_stamped;
+    // odom_ned_msg.header.frame_id = world_frame_id_;
+    // odom_ned_msg.child_frame_id = "/airsim/odom_local_ned"; // todo make param
+    Eigen::Quaternionf quat;
+    Eigen::Vector3f transl;
+    transl(0) = drone_state.getPosition().x();
+    transl(1) = drone_state.getPosition().y();
+    transl(2) = drone_state.getPosition().z();
+    quat.x() = drone_state.getOrientation().x();
+    quat.y() = drone_state.getOrientation().y();
+    quat.z() = drone_state.getOrientation().z();
+    quat.w() = drone_state.getOrientation().w();
+
+    Eigen::Matrix3f rotm_en;   
+    Eigen::Affine3f transform;                 
+    rotm_en << 1,0,0,
+            0,-1,0,
+            0,0,-1;
+
+    quat.normalize();
+    transform.setIdentity();
+    transform.translate(transl);
+    transform.rotate(quat);
+    
+    transform.prerotate(rotm_en);    
+    transform.rotate(rotm_en.transpose()); // to enu
+    
+    // std::cout << transform.matrix() << std::endl;
+
+    quat = Eigen::Quaternionf(transform.rotation());
+    pose_stamped.pose.position.x = transform.translation()(0);
+    pose_stamped.pose.position.y = transform.translation()(1);
+    pose_stamped.pose.position.z = transform.translation()(2);
+
+    pose_stamped.pose.orientation.w = quat.w();
+    pose_stamped.pose.orientation.x = quat.x();
+    pose_stamped.pose.orientation.y = quat.y();
+    pose_stamped.pose.orientation.z = quat.z();
+    
+    return pose_stamped;
+}
+
+
+
 
 // https://docs.ros.org/jade/api/sensor_msgs/html/point__cloud__conversion_8h_source.html#l00066
 // look at UnrealLidarSensor.cpp UnrealLidarSensor::getPointCloud() for math
@@ -678,7 +778,15 @@ void AirsimROSWrapper::publish_odom_tf(const nav_msgs::Odometry& odom_ned_msg)
     odom_tf.transform.rotation.z = odom_ned_msg.pose.pose.orientation.z;
     odom_tf.transform.rotation.w = odom_ned_msg.pose.pose.orientation.w;
     tf_broadcaster_.sendTransform(odom_tf);
+    
 }
+
+void AirsimROSWrapper::publish_true_tf(const geometry_msgs::TransformStamped& true_tf){
+
+    tf_broadcaster_.sendTransform(true_tf);
+
+}
+
 
 airsim_ros_pkgs::GPSYaw AirsimROSWrapper::get_gps_msg_from_airsim_geo_point(const msr::airlib::GeoPoint& geo_point) const
 {
@@ -728,14 +836,55 @@ void AirsimROSWrapper::drone_state_timer_cb(const ros::TimerEvent& event)
             // get drone state from airsim
             std::unique_lock<std::recursive_mutex> lck(drone_control_mutex_);
             multirotor_ros.curr_drone_state = airsim_client_.getMultirotorState(multirotor_ros.vehicle_name);
+            // auto pose_true = airsim_client_.simGetObjectPose(multirotor_ros.vehicle_name);
+            
+            auto pose_true = airsim_client_.simGetObjectPose(object_name); // ned 
+
+            ROS_INFO_STREAM("Object "<< object_name << " : " << pose_true.position.x() << " , " << pose_true.position.y()  << " , " << pose_true.position.z());
+
             lck.unlock();
             ros::Time curr_ros_time = ros::Time::now();
+            
+            /** Added by JBS **/
+            // object of interest transform (JBS)
+            geometry_msgs::TransformStamped true_tf;
+            true_tf.header.frame_id = multirotor_ros.vehicle_name;
+            true_tf.child_frame_id = object_name + "_ned"; 
+            true_tf.header.stamp = curr_ros_time;
+            true_tf.transform.translation.x = pose_true.position.x();
+            true_tf.transform.translation.y = pose_true.position.y();
+            true_tf.transform.translation.z = pose_true.position.z();
+            true_tf.transform.rotation.x = pose_true.orientation.x();
+            true_tf.transform.rotation.y = pose_true.orientation.y();
+            true_tf.transform.rotation.z = pose_true.orientation.z();
+            true_tf.transform.rotation.w = pose_true.orientation.w();
+
+            geometry_msgs::PoseStamped object_pose_ned;
+            object_pose_ned.header.frame_id = "world_ned"; // ? 
+            object_pose_ned.pose.position.x = pose_true.position.x();
+            object_pose_ned.pose.position.y = pose_true.position.y();
+            object_pose_ned.pose.position.z = pose_true.position.z();
+            object_pose_ned.pose.orientation.x = pose_true.orientation.x();
+            object_pose_ned.pose.orientation.y = pose_true.orientation.y();
+            object_pose_ned.pose.orientation.z = pose_true.orientation.z();
+            object_pose_ned.pose.orientation.w = pose_true.orientation.w();
+
+            if (not std::isnan(pose_true.position.x())){
+                publish_true_tf(true_tf); // publish the target transform tf 
+                pose_object_enu_pub.publish(ned_pose_to_enu_pose(object_pose_ned));
+            }
 
             // convert airsim drone state to ROS msgs
             multirotor_ros.curr_odom_ned = get_odom_msg_from_airsim_state(multirotor_ros.curr_drone_state);
             multirotor_ros.curr_odom_ned.header.frame_id = multirotor_ros.vehicle_name;
             multirotor_ros.curr_odom_ned.child_frame_id = multirotor_ros.odom_frame_id;
             multirotor_ros.curr_odom_ned.header.stamp = curr_ros_time;
+
+            // convert airsim drone state to ROS msgs (JBS)
+            multirotor_ros.curr_pose_enu = get_pose_msg_from_airsim_state(multirotor_ros.curr_drone_state);
+            multirotor_ros.curr_pose_enu.header.frame_id = vehicle_id_enu_;
+            multirotor_ros.curr_pose_enu.header.stamp = curr_ros_time;
+
 
             multirotor_ros.gps_sensor_msg = get_gps_sensor_msg_from_airsim_geo_point(multirotor_ros.curr_drone_state.gps_location);
             multirotor_ros.gps_sensor_msg.header.stamp = curr_ros_time;
@@ -744,6 +893,7 @@ void AirsimROSWrapper::drone_state_timer_cb(const ros::TimerEvent& event)
             multirotor_ros.odom_local_ned_pub.publish(multirotor_ros.curr_odom_ned);
             publish_odom_tf(multirotor_ros.curr_odom_ned);
             multirotor_ros.global_gps_pub.publish(multirotor_ros.gps_sensor_msg);
+            multirotor_ros.pose_local_enu_pub.publish(multirotor_ros.curr_pose_enu);
 
             // send control commands from the last callback to airsim
             if (multirotor_ros.has_vel_cmd)

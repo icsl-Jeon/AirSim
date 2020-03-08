@@ -47,6 +47,9 @@ STRICT_MODE_ON
 #include <std_srvs/Empty.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
+#include <Eigen/Geometry>
+#include <Eigen/Core>
+
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -128,6 +131,10 @@ public:
     bool is_used_img_timer_cb_queue_;
 
 private:
+
+    // basic conversion 
+    geometry_msgs::PoseStamped ned_pose_to_enu_pose(const geometry_msgs::PoseStamped & pose_ned);
+
     /// ROS timer callbacks
     void img_response_timer_cb(const ros::TimerEvent& event); // update images from airsim_client_ every nth sec
     void drone_state_timer_cb(const ros::TimerEvent& event); // update drone state from airsim_client_ every nth sec
@@ -161,6 +168,7 @@ private:
     /// ROS tf broadcasters
     void publish_camera_tf(const ImageResponse& img_response, const ros::Time& ros_time, const std::string& frame_id, const std::string& child_frame_id);
     void publish_odom_tf(const nav_msgs::Odometry& odom_ned_msg);
+    void publish_true_tf(const geometry_msgs::TransformStamped& true_tf); // added by JBS
 
     /// camera helper methods
     sensor_msgs::CameraInfo generate_cam_info(const std::string& camera_name, const CameraSetting& camera_setting, const CaptureSetting& capture_setting) const;
@@ -183,6 +191,8 @@ private:
     msr::airlib::Quaternionr get_airlib_quat(const geometry_msgs::Quaternion& geometry_msgs_quat) const;
     msr::airlib::Quaternionr get_airlib_quat(const tf2::Quaternion& tf2_quat) const;
     nav_msgs::Odometry get_odom_msg_from_airsim_state(const msr::airlib::MultirotorState& drone_state) const;
+    geometry_msgs::PoseStamped get_pose_msg_from_airsim_state(const msr::airlib::MultirotorState& drone_state) const;
+
     airsim_ros_pkgs::GPSYaw get_gps_msg_from_airsim_geo_point(const msr::airlib::GeoPoint& geo_point) const;
     sensor_msgs::NavSatFix get_gps_sensor_msg_from_airsim_geo_point(const msr::airlib::GeoPoint& geo_point) const;
     sensor_msgs::Imu get_imu_msg_from_airsim(const msr::airlib::ImuBase::Output& imu_data) const;
@@ -204,6 +214,7 @@ private:
     ros::Subscriber vel_cmd_group_world_frame_sub_;
     ros::ServiceServer takeoff_group_srvr_;
     ros::ServiceServer land_group_srvr_;
+    ros::Publisher pose_object_enu_pub; // JBS
 
     // utility struct for a SINGLE robot
     struct MultiRotorROS
@@ -212,6 +223,8 @@ private:
 
         /// All things ROS
         ros::Publisher odom_local_ned_pub;
+        ros::Publisher pose_local_enu_pub; // JBS 
+
         ros::Publisher global_gps_pub;
         // ros::Publisher home_geo_point_pub_; // geo coord of unreal origin
 
@@ -225,6 +238,7 @@ private:
         msr::airlib::MultirotorState curr_drone_state;
         // bool in_air_; // todo change to "status" and keep track of this
         nav_msgs::Odometry curr_odom_ned;
+        geometry_msgs::PoseStamped curr_pose_enu;
         sensor_msgs::NavSatFix gps_sensor_msg;
         bool has_vel_cmd;
         VelCmd vel_cmd;
@@ -240,8 +254,12 @@ private:
     ros::Publisher origin_geo_point_pub_; // home geo coord of drones
     msr::airlib::GeoPoint origin_geo_point_;// gps coord of unreal origin 
     airsim_ros_pkgs::GPSYaw origin_geo_point_msg_; // todo duplicate
-
+    
     std::vector<MultiRotorROS> multirotor_ros_vec_;
+
+    string object_name; // JBS : if any other interested object,... 
+    geometry_msgs::PoseStamped object_pose_enu;
+
 
     std::vector<string> vehicle_names_;
     std::vector<VehicleSetting> vehicle_setting_vec_;
@@ -276,6 +294,8 @@ private:
 
     /// ROS tf
     std::string world_frame_id_;
+    std::string vehicle_id_enu_;
+
     tf2_ros::TransformBroadcaster tf_broadcaster_;
     tf2_ros::StaticTransformBroadcaster static_tf_pub_;
     tf2_ros::Buffer tf_buffer_;

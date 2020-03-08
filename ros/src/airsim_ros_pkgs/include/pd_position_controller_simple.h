@@ -16,6 +16,10 @@ STRICT_MODE_ON
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+
+#include <Eigen/Geometry>
+
+
 #include <nav_msgs/Odometry.h>
 #include <math.h>
 #include <airsim_ros_pkgs/VelCmd.h>
@@ -98,7 +102,7 @@ public:
     // ROS subscriber callbacks
     void airsim_odom_cb(const nav_msgs::Odometry& odom_msg);
     void home_geopoint_cb(const airsim_ros_pkgs::GPSYaw& gps_msg);
-
+    void local_position_gaol_enu(const geometry_msgs::PoseStamped& goal_msg);
     void update_control_cmd_timer_cb(const ros::TimerEvent& event);
 
     void reset_errors();
@@ -108,6 +112,7 @@ public:
     void enforce_dynamic_constraints();
     void publish_control_cmd();
     void check_reached_goal();
+
 
 private:
     geodetic_converter::GeodeticConverter geodetic_converter_;
@@ -137,6 +142,7 @@ private:
     ros::Publisher airsim_vel_cmd_world_frame_pub_;
     ros::Subscriber airsim_odom_sub_;
     ros::Subscriber home_geopoint_sub_;
+    ros::Subscriber local_position_goal_sub_; // JBS (enu)
     ros::ServiceServer local_position_goal_srvr_;
     ros::ServiceServer local_position_goal_override_srvr_;
     ros::ServiceServer gps_goal_srvr_;

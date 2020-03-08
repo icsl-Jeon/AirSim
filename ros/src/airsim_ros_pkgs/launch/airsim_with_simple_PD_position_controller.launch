@@ -7,5 +7,4 @@
 <!-- Simple PID Position Controller -->
 	<include file="$(find airsim_ros_pkgs)/launch/position_controller_simple.launch"/>
 <!-- Static transforms -->
-	<include file="$(find airsim_ros_pkgs)/launch/static_transforms.launch"/>
 </launch>
