@@ -1,0 +1,22 @@
+digraph G {
+"world_ned" -> "drone_1"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1/odom_local_ned" -> "front_center_custom_body/static"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1" -> "drone_1/odom_local_ned"[label="Broadcaster: /airsim_node\nAverage rate: 6.939 Hz\nMost recent transform: 1581753601.227 ( 0.113 sec old)\nBuffer length: 4.467 sec\n"];
+"drone_1/odom_local_ned" -> "front_center_custom_optical/static"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1/odom_local_ned" -> "front_left_custom_body/static"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1/odom_local_ned" -> "front_left_custom_optical/static"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1/odom_local_ned" -> "front_right_custom_body/static"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1/odom_local_ned" -> "front_right_custom_optical/static"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"drone_1/odom_local_ned" -> "LidarCustom"[label="Broadcaster: /airsim_node\nAverage rate: 10000.000 Hz\nMost recent transform: 0.000 ( 1581753601.340 sec old)\nBuffer length: 0.000 sec\n"];
+"world_ned" -> "world_enu"[label="Broadcaster: /ned_to_enu_pub\nAverage rate: 10.195 Hz\nMost recent transform: 1581753601.416 ( -0.076 sec old)\nBuffer length: 4.904 sec\n"];
+"drone_1" -> "front_left_custom_body"[label="Broadcaster: /airsim_node\nAverage rate: 4.370 Hz\nMost recent transform: 1581753601.333 ( 0.007 sec old)\nBuffer length: 4.576 sec\n"];
+"drone_1" -> "front_left_custom_optical"[label="Broadcaster: /airsim_node\nAverage rate: 4.370 Hz\nMost recent transform: 1581753601.333 ( 0.007 sec old)\nBuffer length: 4.576 sec\n"];
+"drone_1" -> "front_right_custom_body"[label="Broadcaster: /airsim_node\nAverage rate: 2.157 Hz\nMost recent transform: 1581753601.017 ( 0.323 sec old)\nBuffer length: 4.173 sec\n"];
+"drone_1" -> "front_right_custom_optical"[label="Broadcaster: /airsim_node\nAverage rate: 2.157 Hz\nMost recent transform: 1581753601.017 ( 0.323 sec old)\nBuffer length: 4.173 sec\n"];
+"drone_1" -> "front_center_custom_body"[label="Broadcaster: /airsim_node\nAverage rate: 2.131 Hz\nMost recent transform: 1581753601.166 ( 0.174 sec old)\nBuffer length: 4.223 sec\n"];
+"drone_1" -> "front_center_custom_optical"[label="Broadcaster: /airsim_node\nAverage rate: 2.131 Hz\nMost recent transform: 1581753601.166 ( 0.174 sec old)\nBuffer length: 4.223 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1581753601.340"[ shape=plaintext ] ;
+ }->"world_ned";
+}
