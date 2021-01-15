@@ -16,10 +16,6 @@ STRICT_MODE_ON
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-
-#include <Eigen/Geometry>
-
-
 #include <nav_msgs/Odometry.h>
 #include <math.h>
 #include <airsim_ros_pkgs/VelCmd.h>
@@ -45,6 +41,9 @@ public:
 
     double reached_thresh_xyz;
     double reached_yaw_degrees;
+    double xyz_cmd_smoothing;
+    double yaw_cmd_smoothing;
+    double gimbal_cmd_smoothing;
 
     PIDParams():
         kp_x(0.5),
@@ -56,7 +55,9 @@ public:
         kd_z(0.1),
         kd_yaw(0.1),
         reached_thresh_xyz(0.5),
-        reached_yaw_degrees(5.0)
+        reached_yaw_degrees(5.0),
+        yaw_cmd_smoothing(0.4),
+        gimbal_cmd_smoothing(0.4)
         {}
 
     bool load_from_rosparams(const ros::NodeHandle& nh);
@@ -95,14 +96,15 @@ public:
 
     // ROS service callbacks
     bool local_position_goal_srv_cb(airsim_ros_pkgs::SetLocalPosition::Request& request, airsim_ros_pkgs::SetLocalPosition::Response& response); 
-    bool local_position_goal_srv_override_cb(airsim_ros_pkgs::SetLocalPosition::Request& request, airsim_ros_pkgs::SetLocalPosition::Response& response); 
+    bool local_position_goal_srv_override_cb(airsim_ros_pkgs::SetLocalPosition::Request& request, airsim_ros_pkgs::SetLocalPosition::Response& response);
+    void local_position_gaol_enu(const geometry_msgs::PoseStamped& goal_msg);
     bool gps_goal_srv_cb(airsim_ros_pkgs::SetGPSPosition::Request& request, airsim_ros_pkgs::SetGPSPosition::Response& response);
     bool gps_goal_srv_override_cb(airsim_ros_pkgs::SetGPSPosition::Request& request, airsim_ros_pkgs::SetGPSPosition::Response& response);
 
     // ROS subscriber callbacks
     void airsim_odom_cb(const nav_msgs::Odometry& odom_msg);
     void home_geopoint_cb(const airsim_ros_pkgs::GPSYaw& gps_msg);
-    void local_position_gaol_enu(const geometry_msgs::PoseStamped& goal_msg);
+
     void update_control_cmd_timer_cb(const ros::TimerEvent& event);
 
     void reset_errors();
@@ -112,7 +114,6 @@ public:
     void enforce_dynamic_constraints();
     void publish_control_cmd();
     void check_reached_goal();
-
 
 private:
     geodetic_converter::GeodeticConverter geodetic_converter_;
@@ -142,8 +143,8 @@ private:
     ros::Publisher airsim_vel_cmd_world_frame_pub_;
     ros::Subscriber airsim_odom_sub_;
     ros::Subscriber home_geopoint_sub_;
-    ros::Subscriber local_position_goal_sub_; // JBS (enu)
     ros::ServiceServer local_position_goal_srvr_;
+    ros::Subscriber local_position_goal_sub_; // JBS (enu)
     ros::ServiceServer local_position_goal_override_srvr_;
     ros::ServiceServer gps_goal_srvr_;
     ros::ServiceServer gps_goal_override_srvr_;

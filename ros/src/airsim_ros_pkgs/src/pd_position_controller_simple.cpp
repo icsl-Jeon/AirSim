@@ -1,4 +1,5 @@
 #include "pd_position_controller_simple.h"
+#include "tf/tf.h"
 
 bool PIDParams::load_from_rosparams(const ros::NodeHandle &nh)
 {
@@ -16,7 +17,7 @@ bool PIDParams::load_from_rosparams(const ros::NodeHandle &nh)
 
     found = found && nh.getParam("reached_thresh_xyz", reached_thresh_xyz);
     found = found && nh.getParam("reached_yaw_degrees", reached_yaw_degrees);
-
+    found = found && nh.getParam("xyz_cmd_smoothing",xyz_cmd_smoothing);
     return found;
 }
 
@@ -64,7 +65,6 @@ void PIDPositionController::initialize_ros()
     airsim_odom_sub_ = nh_.subscribe("/airsim_node/odom_local_ned", 50, &PIDPositionController::airsim_odom_cb, this);
     home_geopoint_sub_ = nh_.subscribe("/airsim_node/home_geo_point", 50, &PIDPositionController::home_geopoint_cb, this);
     local_position_goal_sub_ = nh_.subscribe("/airsim_node/local_position_goal_enu", 50, &PIDPositionController::local_position_gaol_enu, this);
-
     // todo publish this under global nodehandle / "airsim node" and hide it from user
     local_position_goal_srvr_ = nh_.advertiseService("/airsim_node/local_position_goal", &PIDPositionController::local_position_goal_srv_cb, this);
     local_position_goal_override_srvr_ = nh_.advertiseService("/airsim_node/local_position_goal/override", &PIDPositionController::local_position_goal_srv_override_cb, this);
@@ -129,11 +129,15 @@ bool PIDPositionController::local_position_goal_srv_cb(airsim_ros_pkgs::SetLocal
         reset_errors(); // todo
         return true;
     }
+
+    // Already have goal, and have reached it
+    ROS_INFO_STREAM("[PIDPositionController] Already have goal and have reached it");
+    return false;
 }
 
 bool PIDPositionController::local_position_goal_srv_override_cb(airsim_ros_pkgs::SetLocalPosition::Request& request, airsim_ros_pkgs::SetLocalPosition::Response& response)
 {
-    // this tells the update timer callback to not do active hovering 
+    // this tells the update timer callback to not do active hovering
     if(!got_goal_once_)
         got_goal_once_ = true;
 
@@ -153,59 +157,28 @@ bool PIDPositionController::local_position_goal_srv_override_cb(airsim_ros_pkgs:
 // goal = published w.r.t enu frame
 void PIDPositionController::local_position_gaol_enu(const geometry_msgs::PoseStamped& goal_msg){
 
-    // this tells the update timer callback to not do active hovering 
+    // this tells the update timer callback to not do active hovering
     if(!got_goal_once_)
         got_goal_once_ = true;
 
+    target_position_.x = goal_msg.pose.position.y;
+    target_position_.y = goal_msg.pose.position.x;
+    target_position_.z = -goal_msg.pose.position.z;
+    tf::Quaternion q(goal_msg.pose.orientation.x,
+                     goal_msg.pose.orientation.y,
+                     goal_msg.pose.orientation.z,
+                     goal_msg.pose.orientation.w);
+    tf::Matrix3x3 quat(q);
+    tfScalar  roll,pitch,yaw;
+    quat.getRPY(roll,pitch,yaw);
+    target_position_.yaw = -yaw + M_PI/2.0;
 
-
-    Eigen::Quaternionf quat;
-    Eigen::Vector3f transl;
-    quat.x() = goal_msg.pose.orientation.x;
-    quat.y() = goal_msg.pose.orientation.y;
-    quat.z() = goal_msg.pose.orientation.z;
-    quat.w() = goal_msg.pose.orientation.w;
-    transl(0) = goal_msg.pose.position.x;
-    transl(1) = goal_msg.pose.position.y;
-    transl(2) = goal_msg.pose.position.z;
-    
-
-    Eigen::Affine3f goal_pose_ned; goal_pose_ned.setIdentity();
-    goal_pose_ned.setIdentity();
-    goal_pose_ned.translate(transl); 
-    goal_pose_ned.rotate(quat);
-
-    Eigen::Matrix3f quat_mat(goal_pose_ned.rotation());
-    
-    auto euler = quat_mat.eulerAngles(0, 1, 2);
-
-    // enu to ned
-
-    Eigen::Matrix3f ned2enu_rot;
-    ned2enu_rot << 1,0,0,
-                    0,-1,0,
-                    0,0,-1;    
-
-    goal_pose_ned.prerotate(ned2enu_rot); 
-    // goal_pose_ned.rotate(ned2enu_rot.transpose());
-    
-
-    // odom_ned_msg.child_frame_id = "/airsim/odom_local_ned"; // todo make param
-
-    
-    target_position_.x = goal_pose_ned.translation()(0);
-    target_position_.y = goal_pose_ned.translation()(1);
-    target_position_.z = goal_pose_ned.translation()(2);
-    target_position_.yaw = -euler(2);
-
-    ROS_INFO_STREAM("[PIDPositionController] got goal: x=" << target_position_.x << " y=" << target_position_.y << " z=" << target_position_.z << " yaw=" << target_position_.yaw );
-
-    // todo error checks 
+//    ROS_INFO_STREAM("Target yaw NED : "<<target_position_.yaw << "ENU: " << yaw ) ;
+    // todo error checks
     // todo fill response
     has_goal_ = true;
     reached_goal_ = false;
     reset_errors(); // todo
-
 }
 
 void PIDPositionController::home_geopoint_cb(const airsim_ros_pkgs::GPSYaw& gps_msg)
@@ -265,6 +238,10 @@ bool PIDPositionController::gps_goal_srv_cb(airsim_ros_pkgs::SetGPSPosition::Req
         reset_errors(); // todo
         return true;
     }
+
+    // Already have goal, this shouldn't happen
+    ROS_INFO_STREAM("[PIDPositionController] Goal already received, ignoring!");
+    return false;
 }
 
 // todo do relative altitude, or add an option for the same?
@@ -334,7 +311,7 @@ void PIDPositionController::update_control_cmd_timer_cb(const ros::TimerEvent& e
         }
         else
         {
-            // ROS_INFO_STREAM("[PIDPositionController] Moving to goal.");
+            ROS_INFO_STREAM_ONCE("[PIDPositionController] Moving to goal.");
         }
     }
 
@@ -352,8 +329,10 @@ void PIDPositionController::compute_control_cmd()
     curr_error_.x = target_position_.x - curr_position_.x;
     curr_error_.y = target_position_.y - curr_position_.y;
     curr_error_.z = target_position_.z - curr_position_.z;
+//    std::cout << "z error : " <<  curr_error_.z <<
+//    " / current z = " << curr_position_.z << " target z = " << target_position_.z   << std::endl;
     curr_error_.yaw = math_common::angular_dist(curr_position_.yaw, target_position_.yaw);
-    
+
     double p_term_x = params_.kp_x * curr_error_.x;
     double p_term_y = params_.kp_y * curr_error_.y;
     double p_term_z = params_.kp_z * curr_error_.z;
@@ -366,10 +345,18 @@ void PIDPositionController::compute_control_cmd()
 
     prev_error_ = curr_error_;
 
-    vel_cmd_.twist.linear.x = p_term_x + d_term_x;
-    vel_cmd_.twist.linear.y = p_term_y + d_term_y;
-    vel_cmd_.twist.linear.z = p_term_z + d_term_z;
-    vel_cmd_.twist.angular.z = p_term_yaw + d_term_yaw; // todo
+
+
+    vel_cmd_.twist.linear.x = (1-params_.xyz_cmd_smoothing)*(p_term_x + d_term_x) + params_.xyz_cmd_smoothing*(vel_cmd_.twist.linear.x);
+    vel_cmd_.twist.linear.y = (1-params_.xyz_cmd_smoothing)*(p_term_y + d_term_y) + params_.xyz_cmd_smoothing*(vel_cmd_.twist.linear.y);
+    vel_cmd_.twist.linear.z = (1-params_.xyz_cmd_smoothing)*(p_term_z + d_term_z) + params_.xyz_cmd_smoothing*(vel_cmd_.twist.linear.z);
+
+    Eigen::Vector3d vec = Eigen::Vector3d(vel_cmd_.twist.linear.x,vel_cmd_.twist.linear.y,vel_cmd_.twist.linear.z);
+//    printf("vel cmd = [%f,%f,%f] (%f) \n",vec(0),vec(1),vec(2),vec.norm());
+    vel_cmd_.twist.angular.z = (1-params_.yaw_cmd_smoothing)*(p_term_yaw + d_term_yaw)+ params_.yaw_cmd_smoothing * vel_cmd_.twist.angular.z; // todo
+
+
+
 }
 
 void PIDPositionController::enforce_dynamic_constraints()
